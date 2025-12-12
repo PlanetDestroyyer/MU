@@ -16,7 +16,7 @@ setup(
     description="Meaning Unit (MU) Transformer - A novel transformer architecture with explicit semantic factorization",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/mu-transformer",
+    url="https://github.com/PlanetDestroyyer/MU",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
