@@ -74,8 +74,8 @@ For full experimentation with all features:
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/mu-transformer.git
-cd mu-transformer
+git clone https://github.com/PlanetDestroyyer/MU.git
+cd MU
 
 # Install dependencies
 pip install -r requirements.txt
