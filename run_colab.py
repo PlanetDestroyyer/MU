@@ -115,7 +115,7 @@ class WikiTextDataset(Dataset):
         for i in range(0, len(all_text) - max_seq_len - 1, stride):
             chunk = all_text[i:i + max_seq_len + 1]
             if len(chunk) == max_seq_len + 1:
-                tokens = [self.char_to_idx.get(c, vocab_size-1) for c in chunk]
+                tokens = [self.char_to_idx.get(c, self.vocab_size-1) for c in chunk]
                 self.data.append(torch.tensor(tokens, dtype=torch.long))
 
         print(f"Created {len(self.data)} sequences from {split} split")
@@ -1058,15 +1058,25 @@ def main():
 
     except Exception as e:
         print(f"✗ Error: {e}")
-        print("Using dummy data...")
+        print("\n⚠️  WARNING: Using dummy random data!")
+        print("   The model will not learn anything meaningful.")
+        print("   Training metrics will be useless (random guessing).")
+        print("   This is only for testing that the code runs.\n")
 
         class DummyDataset(Dataset):
+            def __init__(self):
+                # Add vocabulary for compatibility
+                self.vocab_size = config.vocab_size if hasattr(config, 'vocab_size') else 97
+                self.char_to_idx = None
+                self.idx_to_char = None
+
             def __len__(self):
                 return 128
+
             def __getitem__(self, idx):
                 return {
-                    'input_ids': torch.randint(0, config.vocab_size, (config.max_seq_len,)),
-                    'labels': torch.randint(0, config.vocab_size, (config.max_seq_len,))
+                    'input_ids': torch.randint(0, self.vocab_size, (config.max_seq_len,)),
+                    'labels': torch.randint(0, self.vocab_size, (config.max_seq_len,))
                 }
 
         train_dataset = DummyDataset()
@@ -1118,73 +1128,78 @@ def main():
     print("🔍 SEMANTIC ANALYSIS")
     print(f"{'='*80}")
 
-    model.eval()
-    with torch.no_grad():
-        # Get a sample batch
-        sample_batch = next(iter(val_loader))
-        input_ids = sample_batch['input_ids'][:1].to(config.device)  # Take first example
+    # Skip if using dummy data
+    if not hasattr(train_dataset, 'char_to_idx'):
+        print("⚠️  Skipping semantic analysis (using dummy data)")
+        print("   Please fix dataset loading to see generation quality")
+    else:
+        model.eval()
+        with torch.no_grad():
+            # Get a sample batch
+            sample_batch = next(iter(val_loader))
+            input_ids = sample_batch['input_ids'][:1].to(config.device)  # Take first example
 
-        # Generate sample text
-        print("\n📝 Sample Generation (checking if it's English):")
-        print("-" * 80)
+            # Generate sample text
+            print("\n📝 Sample Generation (checking if it's English):")
+            print("-" * 80)
 
-        prompt = "The quick brown "
-        input_tokens = [train_dataset.char_to_idx.get(c, train_dataset.char_to_idx['<UNK>']) for c in prompt]
-        input_tensor = torch.tensor([input_tokens], dtype=torch.long).to(config.device)
+            prompt = "The quick brown "
+            input_tokens = [train_dataset.char_to_idx.get(c, train_dataset.char_to_idx['<UNK>']) for c in prompt]
+            input_tensor = torch.tensor([input_tokens], dtype=torch.long).to(config.device)
 
-        generated = input_tokens.copy()
-        for _ in range(50):  # Generate 50 characters
-            if input_tensor.size(1) > config.max_seq_len:
-                input_tensor = input_tensor[:, -config.max_seq_len:]
+            generated = input_tokens.copy()
+            for _ in range(50):  # Generate 50 characters
+                if input_tensor.size(1) > config.max_seq_len:
+                    input_tensor = input_tensor[:, -config.max_seq_len:]
 
-            outputs = model(input_tensor)
-            next_token_logits = outputs[0, -1, :]
-            next_token = torch.argmax(next_token_logits).item()
-            generated.append(next_token)
-            input_tensor = torch.cat([input_tensor, torch.tensor([[next_token]], device=config.device)], dim=1)
+                outputs = model(input_tensor)
+                next_token_logits = outputs[0, -1, :]
+                next_token = torch.argmax(next_token_logits).item()
+                generated.append(next_token)
+                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token]], device=config.device)], dim=1)
 
-        generated_text = ''.join([train_dataset.idx_to_char.get(idx, '?') for idx in generated])
-        print(f"Prompt: \"{prompt}\"")
-        print(f"Generated: \"{generated_text}\"")
+            generated_text = ''.join([train_dataset.idx_to_char.get(idx, '?') for idx in generated])
+            print(f"Prompt: \"{prompt}\"")
+            print(f"Generated: \"{generated_text}\"")
 
-        # Check if it's actual English
-        ascii_count = sum(1 for c in generated_text if ord(c) < 128)
-        ascii_ratio = ascii_count / len(generated_text) if generated_text else 0
-        print(f"\n✓ ASCII ratio: {ascii_ratio*100:.1f}% (should be ~100% for English)")
+            # Check if it's actual English
+            ascii_count = sum(1 for c in generated_text if ord(c) < 128)
+            ascii_ratio = ascii_count / len(generated_text) if generated_text else 0
+            print(f"\n✓ ASCII ratio: {ascii_ratio*100:.1f}% (should be ~100% for English)")
 
-        if ascii_ratio < 0.95:
-            print(f"⚠️  WARNING: Low ASCII ratio! Model may be generating non-English characters.")
-        else:
-            print(f"✓ Good! Model is generating English/ASCII text.")
+            if ascii_ratio < 0.95:
+                print(f"⚠️  WARNING: Low ASCII ratio! Model may be generating non-English characters.")
+            else:
+                print(f"✓ Good! Model is generating English/ASCII text.")
 
-        # Analyze MU semantic slots
-        print(f"\n📊 MU Semantic Slot Analysis:")
-        print("-" * 80)
+            # Analyze MU semantic slots
+            print(f"\n📊 MU Semantic Slot Analysis:")
+            print("-" * 80)
 
-        # Get sensitivity values from the model
-        if hasattr(model, 'slot_computer'):
-            print("✓ Model has semantic slot computer")
+            # Get sensitivity values from the model
+            if hasattr(model, 'slot_computer'):
+                print("✓ Model has semantic slot computer")
 
-            # Check token properties learned
-            sensitivity_comp = model.layers[0].sensitivity_computer
-            token_freq_sample = torch.sigmoid(sensitivity_comp.token_frequency[:10])
-            print(f"\nSample token frequency (first 10 tokens): {token_freq_sample.cpu().numpy()}")
+                # Check token properties learned
+                sensitivity_comp = model.layers[0].sensitivity_computer
+                token_freq_sample = torch.sigmoid(sensitivity_comp.token_frequency[:10])
+                print(f"\nSample token frequency (first 10 tokens): {token_freq_sample.cpu().numpy()}")
 
-            # Show that sensitivity formulas are being used
-            print(f"\n✓ Dynamic Sensitivity Formulas Active:")
-            print(f"  • Identity (I): 0.01-0.15 (stable, formula-based)")
-            print(f"  • Structure (S): 0.005-0.03 (invariant, formula-based)")
-            print(f"  • Context (C): 0.60-0.99 (adaptive, formula-based)")
-            print(f"  • Relational (R): 0.70-0.95 (dynamic, formula-based)")
-            print(f"  • Transform (T): 0.40-0.85 (compositional, formula-based)")
-        else:
-            print("⚠️  Warning: Model doesn't have slot_computer")
+                # Show that sensitivity formulas are being used
+                print(f"\n✓ Dynamic Sensitivity Formulas Active:")
+                print(f"  • Identity (I): 0.01-0.15 (stable, formula-based)")
+                print(f"  • Structure (S): 0.005-0.03 (invariant, formula-based)")
+                print(f"  • Context (C): 0.60-0.99 (adaptive, formula-based)")
+                print(f"  • Relational (R): 0.70-0.95 (dynamic, formula-based)")
+                print(f"  • Transform (T): 0.40-0.85 (compositional, formula-based)")
+            else:
+                print("⚠️  Warning: Model doesn't have slot_computer")
 
-        print(f"\n✓ Architecture Check:")
-        print(f"  • MU matrix size: {config.r}×{config.c} = {config.r*config.c} slots")
-        print(f"  • Semantic slots: I, S1-S2, C1-C4, R1a-R2b, T1-T2, K1-K2, G1")
-        print(f"  • Formula-based sensitivity: YES")
-        print(f"  • Hard-coded values: NO")
+            print(f"\n✓ Architecture Check:")
+            print(f"  • MU matrix size: {config.r}×{config.c} = {config.r*config.c} slots")
+            print(f"  • Semantic slots: I, S1-S2, C1-C4, R1a-R2b, T1-T2, K1-K2, G1")
+            print(f"  • Formula-based sensitivity: YES")
+            print(f"  • Hard-coded values: NO")
 
     # Save model after training
     print(f"\n💾 Saving MU model...")
