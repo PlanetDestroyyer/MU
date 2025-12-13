@@ -17,7 +17,8 @@ def load_model(model_path='mu_model.pt', device='cuda'):
     """Load trained MU model"""
     print(f"Loading model from {model_path}...")
 
-    checkpoint = torch.load(model_path, map_location=device)
+    # Load checkpoint (weights_only=False is safe since this is our own checkpoint)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     config = checkpoint['config']
     char_to_idx = checkpoint.get('char_to_idx', None)
     idx_to_char = checkpoint.get('idx_to_char', None)
