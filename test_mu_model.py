@@ -206,30 +206,20 @@ def main():
         print("  Please retrain the model with the updated run_colab.py")
         sys.exit(1)
 
-    # Choose mode
+    # Auto-select demo mode
     print("\n" + "=" * 80)
-    print("Choose mode:")
-    print("  1. Interactive mode (type prompts)")
-    print("  2. Demo with sample prompts")
+    print("Running demo mode with sample prompts...")
     print("=" * 80)
 
-    choice = input("Enter choice (1 or 2): ").strip()
-
-    if choice == '1':
-        interactive_mode(model, char_to_idx, idx_to_char, device)
-    elif choice == '2':
-        # Demo prompts
-        prompts = [
-            "The quick brown ",
-            "Once upon a time",
-            "In the beginning",
-            "Hello world",
-            "The meaning of life"
-        ]
-        batch_generation(model, prompts, char_to_idx, idx_to_char, device)
-    else:
-        print("Invalid choice. Running interactive mode...")
-        interactive_mode(model, char_to_idx, idx_to_char, device)
+    # Demo prompts
+    prompts = [
+        "The quick brown ",
+        "Once upon a time",
+        "In the beginning",
+        "Hello world",
+        "The meaning of life"
+    ]
+    batch_generation(model, prompts, char_to_idx, idx_to_char, device)
 
 
 if __name__ == '__main__':
