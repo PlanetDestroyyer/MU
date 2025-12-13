@@ -659,11 +659,64 @@ class DynamicMUTransformer(nn.Module):
 # BASELINE TRANSFORMER (for comparison)
 # ============================================================================
 
+def calculate_baseline_d_model(target_params, vocab_size, max_seq_len, n_layers, n_heads):
+    """
+    Calculate baseline d_model to match target parameter count
+
+    Baseline params ≈ token_embed + pos_embed + layers + output
+    = vocab_size * d + max_seq_len * d + n_layers * layer_params + d * vocab_size
+
+    Where layer_params (TransformerEncoderLayer):
+    ≈ 4 * d^2 (self-attn QKV + out) + 8 * d^2 (FFN) + layer_norms
+    ≈ 12 * d^2
+    """
+    # Binary search for d_model
+    low, high = 16, 512
+    best_d = low
+
+    for _ in range(20):  # Binary search iterations
+        mid = (low + high) // 2
+
+        # Calculate params with this d_model
+        token_embed = vocab_size * mid
+        pos_embed = max_seq_len * mid
+        output_proj = mid * vocab_size
+
+        # TransformerEncoderLayer params (approximate)
+        # Self-attention: 4 * d_model^2 + layer_norm
+        # FFN: 2 * d_model * (4*d_model) + layer_norm
+        layer_params = (
+            4 * mid * mid +  # Attention
+            8 * mid * mid +  # FFN (d_model -> 4*d_model -> d_model)
+            4 * mid  # Layer norms (2 per layer, weight+bias)
+        )
+
+        total = token_embed + pos_embed + output_proj + n_layers * layer_params
+
+        if abs(total - target_params) < abs(calculate_params(best_d, vocab_size, max_seq_len, n_layers) - target_params):
+            best_d = mid
+
+        if total < target_params:
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return best_d
+
+def calculate_params(d_model, vocab_size, max_seq_len, n_layers):
+    """Helper to calculate actual params"""
+    token_embed = vocab_size * d_model
+    pos_embed = max_seq_len * d_model
+    output_proj = d_model * vocab_size
+    layer_params = 12 * d_model * d_model + 4 * d_model
+    return token_embed + pos_embed + output_proj + n_layers * layer_params
+
+
 class BaselineTransformer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, d_model=None):
         super().__init__()
         self.config = config
-        self.d_model = 128  # Smaller for parameter matching
+        self.d_model = d_model if d_model is not None else 128
 
         self.token_embedding = nn.Embedding(config.vocab_size, self.d_model)
         self.pos_embedding = nn.Parameter(torch.randn(1, config.max_seq_len, self.d_model) * 0.02)
@@ -885,8 +938,15 @@ def plot_comparison(results, save_path='dynamic_mu_comparison.png'):
 
 def print_results_table(results, mu_params, baseline_params):
     print("\n" + "=" * 80)
-    print("FINAL RESULTS - DYNAMIC MU TRANSFORMER (Formula-Based)")
+    print("FINAL RESULTS - PARAMETER-MATCHED COMPARISON")
     print("=" * 80)
+
+    param_diff_pct = abs(mu_params - baseline_params) / mu_params * 100
+
+    print(f"\n📊 PARAMETER MATCHING:")
+    print(f"  • MU Transformer:     {mu_params:,} parameters")
+    print(f"  • Baseline:           {baseline_params:,} parameters")
+    print(f"  • Difference:         {param_diff_pct:.2f}% {'✓ MATCHED!' if param_diff_pct < 5 else '⚠ NOT MATCHED'}")
 
     print(f"\n{'Model':<25} {'Parameters':<15} {'Val Loss':<12} {'Val Acc':<12} {'Val PPL':<12}")
     print("-" * 80)
@@ -910,13 +970,24 @@ def print_results_table(results, mu_params, baseline_params):
     ppl_imp = ((results['Baseline']['val_perplexity'][-1] - results['MU']['val_perplexity'][-1]) /
                results['Baseline']['val_perplexity'][-1]) * 100
 
-    print("\nIMPROVEMENTS (Dynamic MU vs Baseline):")
+    print("\n🎯 IMPROVEMENTS (Dynamic MU vs Baseline):")
     print(f"  • Validation Loss:       {loss_imp:+.2f}% {'✓' if loss_imp > 0 else '✗'}")
     print(f"  • Validation Accuracy:   {acc_imp:+.2f}% {'✓' if acc_imp > 0 else '✗'}")
     print(f"  • Validation Perplexity: {ppl_imp:+.2f}% {'✓' if ppl_imp > 0 else '✗'}")
 
-    param_ratio = (mu_params / baseline_params) * 100
-    print(f"\n  • Parameter Ratio:       {param_ratio:.1f}% of baseline")
+    print("\n🔬 CONCLUSION:")
+    if param_diff_pct < 5:
+        if loss_imp > 0 and acc_imp > 0 and ppl_imp > 0:
+            print("  ✅ MU architecture is BETTER with matched parameters!")
+            print("  → The improvements are due to MU's semantic structure, not just capacity")
+        elif loss_imp < -5 or acc_imp < -5 or ppl_imp < -5:
+            print("  ⚠️  Baseline is better with matched parameters")
+            print("  → Dense matrices may be more parameter-efficient for this task")
+        else:
+            print("  ≈ Both models perform similarly with matched parameters")
+            print("  → No clear architectural advantage")
+    else:
+        print("  ⚠️  Parameters not well-matched - comparison may be unfair")
 
     print("\n" + "=" * 80)
 
@@ -978,12 +1049,33 @@ def main():
         'Baseline': {'train_loss': [], 'train_accuracy': [], 'val_loss': [], 'val_accuracy': [], 'val_perplexity': []}
     }
 
+    # First, train MU and get its parameter count
+    mu_model = None
+    baseline_d_model = None
+
     for model_name, ModelClass in [('MU', DynamicMUTransformer), ('Baseline', BaselineTransformer)]:
         print("\n" + "=" * 80)
         print(f"🚀 TRAINING {model_name.upper()}")
         print("=" * 80)
 
-        model = ModelClass(config).to(config.device)
+        # Create model
+        if model_name == 'MU':
+            model = ModelClass(config).to(config.device)
+            mu_params = sum(p.numel() for p in model.parameters())
+
+            # Calculate matched baseline d_model
+            baseline_d_model = calculate_baseline_d_model(
+                mu_params, config.vocab_size, config.max_seq_len,
+                config.n_layers, config.n_heads
+            )
+            print(f"\n💡 Parameter Matching:")
+            print(f"  • MU has {mu_params:,} parameters")
+            print(f"  • Calculated baseline d_model = {baseline_d_model} to match")
+        else:
+            # Create baseline with matched d_model
+            model = ModelClass(config, d_model=baseline_d_model).to(config.device)
+            baseline_params = sum(p.numel() for p in model.parameters())
+
         num_params = sum(p.numel() for p in model.parameters())
 
         print(f"\nArchitecture:")
@@ -993,10 +1085,10 @@ def main():
         if model_name == 'MU':
             print(f"  • MU Matrix: {config.r}×{config.c} (semantic slots)")
             print(f"  • d_model: {config.d_model}")
-            mu_params = num_params
         else:
             print(f"  • d_model: {model.d_model}")
-            baseline_params = num_params
+            param_diff = abs(mu_params - num_params) / mu_params * 100
+            print(f"  • Parameter difference: {param_diff:.2f}% (target: <5%)")
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
         total_steps = len(train_loader) * config.num_epochs
