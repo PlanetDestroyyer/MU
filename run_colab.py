@@ -65,7 +65,7 @@ class Config:
 
     # Training
     batch_size = 32
-    num_epochs = 3  # Reduced for faster comparison
+    num_epochs = 10  # Increased to evaluate convergence
     learning_rate = 3e-4
     warmup_steps = 200
     weight_decay = 0.01
@@ -1058,88 +1058,66 @@ def main():
         train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=config.batch_size)
 
-    # Train models
+    # Train MU model only
     results = {
-        'MU': {'train_loss': [], 'train_accuracy': [], 'val_loss': [], 'val_accuracy': [], 'val_perplexity': []},
-        'Baseline': {'train_loss': [], 'train_accuracy': [], 'val_loss': [], 'val_accuracy': [], 'val_perplexity': []}
+        'MU': {'train_loss': [], 'train_accuracy': [], 'val_loss': [], 'val_accuracy': [], 'val_perplexity': []}
     }
 
-    # First, train MU and get its parameter count
-    mu_model = None
-    baseline_d_model = None
+    print("\n" + "=" * 80)
+    print("🚀 TRAINING MU TRANSFORMER")
+    print("=" * 80)
 
-    for model_name, ModelClass in [('MU', DynamicMUTransformer), ('Baseline', BaselineTransformer)]:
-        print("\n" + "=" * 80)
-        print(f"🚀 TRAINING {model_name.upper()}")
-        print("=" * 80)
+    # Create MU model
+    model = DynamicMUTransformer(config).to(config.device)
+    num_params = sum(p.numel() for p in model.parameters())
 
-        # Create model
-        if model_name == 'MU':
-            model = ModelClass(config).to(config.device)
-            mu_params = sum(p.numel() for p in model.parameters())
+    print(f"\nArchitecture:")
+    print(f"  • Parameters: {num_params:,}")
+    print(f"  • Layers: {config.n_layers}")
+    print(f"  • Heads: {config.n_heads}")
+    print(f"  • MU Matrix: {config.r}×{config.c} (semantic slots)")
+    print(f"  • d_model: {config.d_model}")
 
-            # Calculate matched baseline d_model
-            baseline_d_model = calculate_baseline_d_model(
-                mu_params, config.vocab_size, config.max_seq_len,
-                config.n_layers, config.n_heads
-            )
-            print(f"\n💡 Parameter Matching:")
-            print(f"  • MU has {mu_params:,} parameters")
-            print(f"  • Calculated baseline d_model = {baseline_d_model} to match")
-        else:
-            # Create baseline with matched d_model
-            model = ModelClass(config, d_model=baseline_d_model).to(config.device)
-            baseline_params = sum(p.numel() for p in model.parameters())
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
+    total_steps = len(train_loader) * config.num_epochs
+    scheduler = get_lr_scheduler(optimizer, config.warmup_steps, total_steps)
 
-        num_params = sum(p.numel() for p in model.parameters())
+    print(f"\n{'='*80}")
+    for epoch in range(1, config.num_epochs + 1):
+        train_metrics = train_epoch(model, train_loader, optimizer, scheduler, config.device, epoch, config.num_epochs)
+        val_metrics = evaluate(model, val_loader, config.device, epoch, config.num_epochs)
 
-        print(f"\nArchitecture:")
-        print(f"  • Parameters: {num_params:,}")
-        print(f"  • Layers: {config.n_layers}")
-        print(f"  • Heads: {config.n_heads}")
-        if model_name == 'MU':
-            print(f"  • MU Matrix: {config.r}×{config.c} (semantic slots)")
-            print(f"  • d_model: {config.d_model}")
-        else:
-            print(f"  • d_model: {model.d_model}")
-            param_diff = abs(mu_params - num_params) / mu_params * 100
-            print(f"  • Parameter difference: {param_diff:.2f}% (target: <5%)")
+        results['MU']['train_loss'].append(train_metrics['loss'])
+        results['MU']['train_accuracy'].append(train_metrics['accuracy'])
+        results['MU']['val_loss'].append(val_metrics['loss'])
+        results['MU']['val_accuracy'].append(val_metrics['accuracy'])
+        results['MU']['val_perplexity'].append(val_metrics['perplexity'])
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-        total_steps = len(train_loader) * config.num_epochs
-        scheduler = get_lr_scheduler(optimizer, config.warmup_steps, total_steps)
+        print(f"\n📊 Epoch {epoch}:")
+        print(f"  Train: Loss={train_metrics['loss']:.4f}, Acc={train_metrics['accuracy']*100:.2f}%")
+        print(f"  Val:   Loss={val_metrics['loss']:.4f}, Acc={val_metrics['accuracy']*100:.2f}%, PPL={val_metrics['perplexity']:.2f}")
 
-        print(f"\n{'='*80}")
-        for epoch in range(1, config.num_epochs + 1):
-            train_metrics = train_epoch(model, train_loader, optimizer, scheduler, config.device, epoch, config.num_epochs)
-            val_metrics = evaluate(model, val_loader, config.device, epoch, config.num_epochs)
-
-            results[model_name]['train_loss'].append(train_metrics['loss'])
-            results[model_name]['train_accuracy'].append(train_metrics['accuracy'])
-            results[model_name]['val_loss'].append(val_metrics['loss'])
-            results[model_name]['val_accuracy'].append(val_metrics['accuracy'])
-            results[model_name]['val_perplexity'].append(val_metrics['perplexity'])
-
-            print(f"\n📊 Epoch {epoch}:")
-            print(f"  Train: Loss={train_metrics['loss']:.4f}, Acc={train_metrics['accuracy']*100:.2f}%")
-            print(f"  Val:   Loss={val_metrics['loss']:.4f}, Acc={val_metrics['accuracy']*100:.2f}%, PPL={val_metrics['perplexity']:.2f}")
-
-        # Save model after training
-        if model_name == 'MU':
-            print(f"\n💾 Saving MU model...")
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'config': config,
-                'vocab_size': config.vocab_size,
-                'char_to_idx': train_dataset.char_to_idx if hasattr(train_dataset, 'char_to_idx') else None,
-                'idx_to_char': train_dataset.idx_to_char if hasattr(train_dataset, 'idx_to_char') else None,
-            }, 'mu_model.pt')
-            print(f"  ✓ Model saved to 'mu_model.pt'")
+    # Save model after training
+    print(f"\n💾 Saving MU model...")
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'config': config,
+        'vocab_size': config.vocab_size,
+        'char_to_idx': train_dataset.char_to_idx if hasattr(train_dataset, 'char_to_idx') else None,
+        'idx_to_char': train_dataset.idx_to_char if hasattr(train_dataset, 'idx_to_char') else None,
+    }, 'mu_model.pt')
+    print(f"  ✓ Model saved to 'mu_model.pt'")
 
     # Results
-    print_results_table(results, mu_params, baseline_params)
-    print("\n📈 Generating visualization...")
-    plot_comparison(results)
+    print("\n" + "=" * 80)
+    print("📊 FINAL RESULTS")
+    print("=" * 80)
+    print(f"\nMU Transformer ({num_params:,} parameters):")
+    print(f"  • Final Train Loss: {results['MU']['train_loss'][-1]:.4f}")
+    print(f"  • Final Train Accuracy: {results['MU']['train_accuracy'][-1]*100:.2f}%")
+    print(f"  • Final Val Loss: {results['MU']['val_loss'][-1]:.4f}")
+    print(f"  • Final Val Accuracy: {results['MU']['val_accuracy'][-1]*100:.2f}%")
+    print(f"  • Final Perplexity: {results['MU']['val_perplexity'][-1]:.2f}")
 
     print("\n" + "=" * 80)
     print("✅ TRAINING COMPLETE!")
