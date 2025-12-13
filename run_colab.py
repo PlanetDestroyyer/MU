@@ -65,7 +65,7 @@ class Config:
 
     # Training
     batch_size = 32
-    num_epochs = 5
+    num_epochs = 3  # Reduced for faster comparison
     learning_rate = 3e-4
     warmup_steps = 200
     weight_decay = 0.01
@@ -663,6 +663,8 @@ def calculate_baseline_d_model(target_params, vocab_size, max_seq_len, n_layers,
     """
     Calculate baseline d_model to match target parameter count
 
+    IMPORTANT: d_model must be divisible by n_heads for MultiheadAttention!
+
     Baseline params ≈ token_embed + pos_embed + layers + output
     = vocab_size * d + max_seq_len * d + n_layers * layer_params + d * vocab_size
 
@@ -670,12 +672,18 @@ def calculate_baseline_d_model(target_params, vocab_size, max_seq_len, n_layers,
     ≈ 4 * d^2 (self-attn QKV + out) + 8 * d^2 (FFN) + layer_norms
     ≈ 12 * d^2
     """
-    # Binary search for d_model
-    low, high = 16, 512
-    best_d = low
+    # Binary search for d_model (must be divisible by n_heads)
+    low, high = n_heads, 512
+    best_d = n_heads
+    best_diff = float('inf')
 
-    for _ in range(20):  # Binary search iterations
+    for _ in range(30):  # Binary search iterations
         mid = (low + high) // 2
+
+        # Round to nearest multiple of n_heads
+        mid = (mid // n_heads) * n_heads
+        if mid < n_heads:
+            mid = n_heads
 
         # Calculate params with this d_model
         token_embed = vocab_size * mid
@@ -692,14 +700,21 @@ def calculate_baseline_d_model(target_params, vocab_size, max_seq_len, n_layers,
         )
 
         total = token_embed + pos_embed + output_proj + n_layers * layer_params
+        diff = abs(total - target_params)
 
-        if abs(total - target_params) < abs(calculate_params(best_d, vocab_size, max_seq_len, n_layers) - target_params):
+        if diff < best_diff:
+            best_diff = diff
             best_d = mid
 
         if total < target_params:
-            low = mid + 1
+            low = mid + n_heads
         else:
-            high = mid - 1
+            high = mid - n_heads
+
+    # Ensure divisibility by n_heads
+    best_d = (best_d // n_heads) * n_heads
+    if best_d < n_heads:
+        best_d = n_heads
 
     return best_d
 
