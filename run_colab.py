@@ -234,14 +234,17 @@ class DynamicSensitivityComputer(nn.Module):
         diversity = torch.sigmoid(self.contextual_diversity[token_ids])
 
         # Attention entropy as proxy for contextual variation
+        # attention_weights: [B, T, T] -> sum over last dim -> [B, T]
         attn_entropy = -torch.sum(
             attention_weights * torch.log(attention_weights + 1e-9),
             dim=-1
-        ).mean(dim=-1)  # [B, T]
+        )  # [B, T]
 
         # Normalize entropy
         eps = 1e-9
-        attn_entropy = (attn_entropy - attn_entropy.min()) / (attn_entropy.max() - attn_entropy.min() + eps)
+        attn_min = attn_entropy.flatten().min()
+        attn_max = attn_entropy.flatten().max()
+        attn_entropy = (attn_entropy - attn_min) / (attn_max - attn_min + eps)
 
         # Base sensitivities for different context types (computed, not hard-coded)
         # C1: left (0.85), C2: right (0.90), C3: global (0.80), C4: local (0.95)
@@ -261,14 +264,17 @@ class DynamicSensitivityComputer(nn.Module):
         Formula: base + scale * normalized_attention_entropy
         """
         # Attention entropy per token
+        # attention_weights: [B, T, T] -> sum over last dim -> [B, T]
         attn_entropy = -torch.sum(
             attention_weights * torch.log(attention_weights + 1e-9),
             dim=-1
-        )  # [B, T, T]
+        )  # [B, T]
 
-        mean_entropy = attn_entropy.mean(dim=-1)  # [B, T]
+        # Normalize entropy
         eps = 1e-9
-        norm_entropy = (mean_entropy - mean_entropy.min()) / (mean_entropy.max() - mean_entropy.min() + eps)
+        attn_min = attn_entropy.flatten().min()
+        attn_max = attn_entropy.flatten().max()
+        norm_entropy = (attn_entropy - attn_min) / (attn_max - attn_min + eps)
 
         # Local relations change more than long-range
         local_base, local_scale = 0.70, 0.25
