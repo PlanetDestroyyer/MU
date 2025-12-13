@@ -132,11 +132,16 @@ class DynamicSensitivityComputer(nn.Module):
     def __init__(self, vocab_size, d_model):
         super().__init__()
 
+        self.d_model = d_model
+
         # Learnable token-level properties (initialized from theory, then learned)
         self.token_frequency = nn.Parameter(torch.randn(vocab_size) * 0.1)
         self.pos_entropy = nn.Parameter(torch.ones(vocab_size) * 0.5)
         self.contextual_diversity = nn.Parameter(torch.ones(vocab_size) * 0.7)
         self.compositionality_score = nn.Parameter(torch.ones(vocab_size) * 0.5)
+
+        # Project MU matrix (16 dim) to d_model for modulation network
+        self.mu_to_hidden = nn.Linear(16, d_model)
 
         # Context-dependent sensitivity modulation
         self.sensitivity_modulator = nn.Sequential(
@@ -155,7 +160,7 @@ class DynamicSensitivityComputer(nn.Module):
 
         Args:
             token_ids: [B, T]
-            hidden_states: [B, T, d_model]
+            hidden_states: [B, T, 16] - flattened MU matrix (M_flat)
             attention_weights: [B, n_heads, T, T]
 
         Returns:
@@ -167,6 +172,10 @@ class DynamicSensitivityComputer(nn.Module):
         # Average attention across heads
         attn = attention_weights.mean(dim=1)  # [B, T, T]
 
+        # Project MU matrix to d_model space for modulation network
+        # hidden_states is M_flat: [B, T, 16]
+        hidden_proj = self.mu_to_hidden(hidden_states)  # [B, T, d_model]
+
         # Compute slot-specific sensitivities
         sens_I = self._compute_identity_sensitivity(token_ids)  # [B, T]
         sens_S = self._compute_structural_sensitivity(token_ids)  # [B, T, 2]
@@ -174,7 +183,7 @@ class DynamicSensitivityComputer(nn.Module):
         sens_R = self._compute_relational_sensitivity(attn)  # [B, T, 4]
         sens_T = self._compute_transformation_sensitivity(token_ids)  # [B, T, 2]
         sens_K = self._compute_compositional_sensitivity(token_ids)  # [B, T, 2]
-        sens_G = self._compute_global_sensitivity(hidden_states)  # [B, T]
+        sens_G = self._compute_global_sensitivity(hidden_proj)  # [B, T]
 
         # Assemble into 4x4 matrix
         sensitivity = torch.zeros(B, T, 4, 4, device=device)
@@ -197,7 +206,7 @@ class DynamicSensitivityComputer(nn.Module):
         sensitivity[:, :, 3, 3] = sens_G
 
         # Context-dependent modulation (learned)
-        modulation = self.sensitivity_modulator(hidden_states).view(B, T, 4, 4)
+        modulation = self.sensitivity_modulator(hidden_proj).view(B, T, 4, 4)
         sensitivity = sensitivity * modulation
 
         return torch.clamp(sensitivity, min=0.001, max=0.999)
