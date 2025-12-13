@@ -1124,6 +1124,18 @@ def main():
             print(f"  Train: Loss={train_metrics['loss']:.4f}, Acc={train_metrics['accuracy']*100:.2f}%")
             print(f"  Val:   Loss={val_metrics['loss']:.4f}, Acc={val_metrics['accuracy']*100:.2f}%, PPL={val_metrics['perplexity']:.2f}")
 
+        # Save model after training
+        if model_name == 'MU':
+            print(f"\n💾 Saving MU model...")
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'config': config,
+                'vocab_size': config.vocab_size,
+                'char_to_idx': train_dataset.char_to_idx if hasattr(train_dataset, 'char_to_idx') else None,
+                'idx_to_char': train_dataset.idx_to_char if hasattr(train_dataset, 'idx_to_char') else None,
+            }, 'mu_model.pt')
+            print(f"  ✓ Model saved to 'mu_model.pt'")
+
     # Results
     print_results_table(results, mu_params, baseline_params)
     print("\n📈 Generating visualization...")
