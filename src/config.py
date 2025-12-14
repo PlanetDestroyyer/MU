@@ -12,8 +12,8 @@ class MUSOTAConfig:
     block_size = 2  # 2×2 blocks
 
     # Architecture (SOTA-level)
-    n_layers = 24  # Scaled up from 6 for better performance
-    n_heads = 16
+    n_layers = 12  # Scaled up from 6 for better performance
+    n_heads = 8
     dropout = 0.1
 
     # Vocabulary
