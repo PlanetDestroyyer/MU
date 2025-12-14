@@ -12,8 +12,8 @@ class MUSOTAConfig:
     block_size = 2  # 2×2 blocks
 
     # Architecture (SOTA-level)
-    n_layers = 12  # Scaled up from 6 for better performance
-    n_heads = 8
+    n_layers = 24  # Scaled up from 6 for better performance
+    n_heads = 16
     dropout = 0.1
 
     # Vocabulary
@@ -21,7 +21,7 @@ class MUSOTAConfig:
     max_seq_len = 512  # Optimized for memory efficiency
 
     # Training
-    batch_size = 32 # Adjusted for 12-layer model memory requirements
+    batch_size = 16 # Adjusted for 12-layer model memory requirements
     num_epochs = 10  # Increased for better convergence
     learning_rate = 3e-4  # Slightly higher for faster convergence
     weight_decay = 0.01
