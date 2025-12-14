@@ -21,7 +21,7 @@ class MUSOTAConfig:
     max_seq_len = 192  # Increased from 128 for better context (memory-safe)
 
     # Training
-    batch_size = 4  # Reduced to compensate for longer sequences
+    batch_size = 12  # Reduced to compensate for longer sequences
     num_epochs = 30  # Increased from 10 to break through plateau
     learning_rate = 1e-4  # REDUCED from 3e-4 to help with convergence
     weight_decay = 0.01
