@@ -27,7 +27,7 @@ class MUSOTAConfig:
     weight_decay = 0.01
     warmup_steps = 500  # Reduced warmup
     max_grad_norm = 1.0
-    gradient_accumulation_steps = 2  # Simulate batch_size=32
+    gradient_accumulation_steps = 1  # Simulate batch_size=32
 
     # Mixed precision
     use_mixed_precision = True
