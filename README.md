@@ -1,385 +1,339 @@
-# Meaning Unit (MU) Transformer
+# MU-SOTA Transformer
 
-A novel transformer architecture that uses **Meaning Unit (MU) matrices** instead of traditional dense embeddings for explicit semantic factorization.
+A novel **Meaning Unit State-of-the-Art Transformer** architecture that uses **8×8 structured semantic matrices** instead of traditional dense embeddings for explicit semantic factorization.
+
+## 🔥 Latest Results
+
+**3-Epoch Training Run (6 layers, ~45 minutes on GPU)**:
+
+| Epoch | Loss | Accuracy | Perplexity | Status |
+|-------|------|----------|------------|--------|
+| 1 | 8.24 | 6.51% | 1151 | Baseline |
+| 2 | 6.52 | 14.45% | 641 | Improving |
+| 3 | 6.02 | 17.53% | 500 | Converging |
+
+**Key Achievements**:
+- ✅ **Architecture works**: Loss decreasing, accuracy increasing consistently
+- ✅ **Text generation improving**: From gibberish to semi-coherent phrases
+- ✅ **Fast training**: ~14 minutes per epoch with gradient accumulation
+- ✅ **Memory efficient**: Fits in 14.74 GB GPU with mixed precision
+- 🎯 **Ready to scale**: Currently upgrading to 12 layers × 10 epochs
 
 ## Overview
 
-The MU Transformer represents each token as a structured 4×4 matrix with semantically-assigned slots, rather than a dense vector. This explicit factorization aims to improve interpretability and performance on tasks requiring nuanced semantic understanding.
-
-**Latest Results (Parameter-Matched Comparison on WikiText-2)**:
-- **MU Transformer**: 99.48% accuracy, 1.02 perplexity (6.2M parameters)
-- **Baseline Transformer**: 58.34% accuracy, 4.14 perplexity (6.28M parameters)
-- **Improvement**: +41.14% accuracy with matched parameters, proving architectural superiority
+The MU-SOTA Transformer represents each token as a structured **8×8 matrix** (64 dimensions) organized into **16 semantic blocks** (each 2×2), rather than a dense vector. This explicit factorization aims to improve interpretability and performance on tasks requiring nuanced semantic understanding.
 
 ### Key Features
 
-- **Structured Representations**: Tokens as 4×4 MU matrices with role-specific slots
-- **Formula-Based Dynamic Sensitivity**: All slot sensitivities computed from semantic principles (NO hard-coded values)
-- **Semantic-Aware Gating**: Adaptive update gates based on semantic roles and learned token properties
-- **Interpretability**: Explicit separation of invariant, relational, and contextual features
-- **Production-Ready**: Complete training pipeline with evaluation metrics
+- **Structured Representations**: Tokens as 8×8 matrices with 16 semantic blocks (2×2 each)
+- **Block-Wise Semantic Attention**: Separate attention modules for each semantic block
+- **Dynamic Sensitivity Computation**: Context-aware gating based on token properties
+- **Cross-Block Attention**: Global refinement across semantic blocks
+- **Mixed Precision Training**: FP16 for speed, gradient accumulation for effective batch size
+- **Production-Ready**: Complete modular pipeline with BPE tokenization
 
 ## Architecture
 
-### MU Matrix Structure
+### 8×8 Matrix Structure (16 Semantic Blocks)
 
 ```
-MU = [
-    [I,   S1,  S2,  R1a],   # Identity + Invariants + Relation
-    [R1b, R2a, R2b, C1 ],   # Relations + Context
-    [C2,  C3,  C4,  T1 ],   # Context + Transform
-    [T2,  K1,  K2,  G1 ]    # Transform + Compositional + Global
+MU Matrix = [
+    [ I  | I  | S  | S  | C1 | C1 | C2 | C2 ]   Row 0-1: Identity, Structure, Context
+    [ I  | I  | S  | S  | C1 | C1 | C2 | C2 ]
+
+    [ R1 | R1 | R2 | R2 | T  | T  | K  | K  ]   Row 2-3: Relations, Transform, Composition
+    [ R1 | R1 | R2 | R2 | T  | T  | K  | K  ]
+
+    [ G  | G  | M  | M  | D  | D  | F  | F  ]   Row 4-5: Global, Memory, Domain, Flow
+    [ G  | G  | M  | M  | D  | D  | F  | F  ]
+
+    [ P  | P  | E  | E  | A  | A  | X  | X  ]   Row 6-7: Pragmatics, Emotion, Agency, Extension
+    [ P  | P  | E  | E  | A  | A  | X  | X  ]
 ]
 ```
 
-**Slot Semantics**:
-- **I**: Identity (very low sensitivity)
-- **S1, S2**: Invariants (near-zero sensitivity)
-- **R1a, R1b, R2a, R2b**: Relational axes (high sensitivity)
-- **C1-C4**: Context slots (very high sensitivity)
-- **T1, T2**: Transformation slots (medium-high sensitivity)
-- **K1, K2**: Compositional features (medium sensitivity)
-- **G1**: Global coordinate (very low sensitivity)
+**16 Semantic Blocks** (each 2×2):
 
-### MU Attention Mechanism
+| Block | Position | Semantic Role | Sensitivity |
+|-------|----------|---------------|-------------|
+| **I** | (0-2, 0-2) | **Identity** - Core token meaning | Low (stable) |
+| **S** | (0-2, 2-4) | **Structure** - Grammatical properties | Very low (invariant) |
+| **C1** | (0-2, 4-6) | **Context-Local** - Immediate context | High (adaptive) |
+| **C2** | (0-2, 6-8) | **Context-Global** - Document context | Very high (fluid) |
+| **R1** | (2-4, 0-2) | **Relation-1** - Dependency structure | High (relational) |
+| **R2** | (2-4, 2-4) | **Relation-2** - Hierarchy/scope | High (relational) |
+| **T** | (2-4, 4-6) | **Transform** - Semantic composition | Medium-high |
+| **K** | (2-4, 6-8) | **Compositional** - Phrase building | Medium |
+| **G** | (4-6, 0-2) | **Global** - Document-level info | Low (stable) |
+| **M** | (4-6, 2-4) | **Memory** - Long-range dependencies | Medium |
+| **D** | (4-6, 4-6) | **Domain** - Topic/field information | Medium |
+| **F** | (4-6, 6-8) | **Flow** - Discourse coherence | Medium-high |
+| **P** | (6-8, 0-2) | **Pragmatics** - Intent/speech acts | Medium |
+| **E** | (6-8, 2-4) | **Emotion** - Affective content | Medium |
+| **A** | (6-8, 4-6) | **Agency** - Actor/action structure | Medium-high |
+| **X** | (6-8, 6-8) | **Extension** - Future semantic slots | Low (reserved) |
 
-1. Flatten MU matrices to vectors [B, T, 16]
-2. Project to Q, K, V [B, T, d_model]
-3. Multi-head self-attention
-4. Project back to MU space
-5. Apply sensitivity-based gating
-6. Update with residual connections
+### Block-Wise Semantic Attention
 
-## Why MU is NOT Just "Another Dense Matrix"
+Each semantic block gets its own attention module:
 
-### The Fundamental Difference
+1. **Intra-Block Attention**: 16 separate attention modules (one per block)
+   - Each processes its 2×2 block (4 values) independently
+   - 2 attention heads per block
+   - Captures role-specific patterns
 
-**Dense Matrix/Embeddings** (Traditional Transformers):
-- Each token → dense vector of arbitrary values [d_model]
-- No explicit semantic structure
-- All dimensions treated equally
-- Updates are uniform across all dimensions
-- Example: `[0.23, -0.45, 0.89, ..., 0.12]` (no inherent meaning)
+2. **Cross-Block Attention**: Global refinement across all blocks
+   - 8 attention heads across full 64-dimensional space
+   - Allows blocks to interact and share information
+   - Residual connections + Layer normalization
 
-**MU Matrix** (This Architecture):
-- Each token → 4×4 structured matrix with **semantic roles**
-- Each slot has **explicit meaning** (Identity, Structure, Context, Relations, etc.)
-- Different slots have **different sensitivities** computed from formulas
-- Updates are **role-aware** based on semantic principles
-- Example: Position [0,0] is always Identity (low sensitivity), Position [1,3] is always Context C1 (high sensitivity)
+3. **Dynamic Sensitivity Gating**: Context-aware modulation
+   - Computes sensitivity for each block based on:
+     - Token properties (learned embeddings)
+     - Attention patterns (entropy)
+   - Different blocks have different update rates
 
-### Why NOT Just an 8×8 Dense Matrix?
+### Model Configuration
 
-Using an arbitrary 8×8 or 4×4 dense matrix would be equivalent to a standard transformer with d_model=64 or d_model=16. The key innovation is **NOT the matrix size**, but:
-
-1. **Semantic Slot Assignment**: Each position in the 4×4 matrix has a predetermined semantic role:
-   - `M[0,0]` = Identity (I) - represents core token identity
-   - `M[0,1:3]` = Structural invariants (S1, S2) - grammatical properties
-   - `M[1:2, 0:3]` = Relational axes (R1a, R1b, R2a, R2b) - dependencies
-   - `M[1,3], M[2,0:4]` = Context slots (C1-C4) - surrounding meaning
-   - `M[3,0:2]` = Transformation slots (T1, T2) - semantic shifts
-   - `M[3,2:4]` = Compositional features (K1, K2) - phrase building
-   - `M[3,4]` = Global coordinate (G1) - document-level info
-
-2. **Formula-Based Dynamic Sensitivity**: Each slot's update sensitivity is computed from semantic principles:
-   ```python
-   # Identity: Low sensitivity (stable token identity)
-   I_sensitivity = 0.01 + 0.14 * sigmoid(token_frequency)
-
-   # Structural: Near-zero sensitivity (grammatical invariants)
-   S_sensitivity = 0.005 + 0.025 * sigmoid(pos_entropy)
-
-   # Context: Very high sensitivity (context-dependent)
-   C_sensitivity = diversity * base * (0.8 + 0.4 * attention_entropy)
-   # Base values: [0.85, 0.90, 0.80, 0.95] for C1-C4
-
-   # Relational: High sensitivity (dependency structure)
-   R_sensitivity = base + scale * normalized_attention_entropy
-   # Different bases for R1a, R1b, R2a, R2b
-
-   # Transformation: Medium-high (semantic composition)
-   T_sensitivity = 0.4 + 0.45 * sigmoid(compositionality_score)
-   ```
-
-3. **Learnable Token Properties**: The model learns semantic properties for each token:
-   - `token_frequency`: How common the token is
-   - `pos_entropy`: Positional diversity (part-of-speech flexibility)
-   - `contextual_diversity`: Range of contexts the token appears in
-   - `compositionality_score`: How compositional the token is
-
-4. **Semantic-Aware Updates**: The update formula respects semantic structure:
-   ```python
-   M_new = M * (1 - G * S) + M_delta * (G * S) + B
-   ```
-   Where:
-   - `G` = Global gating (overall update strength)
-   - `S` = Slot-specific sensitivity matrix (different for each slot!)
-   - `M_delta` = Proposed update from attention
-   - `B` = Slot-specific bias
-
-   This means Identity slots barely change, while Context slots update aggressively.
-
-### Empirical Proof: Architecture > Parameters
-
-Our parameter-matched comparison proves the architecture works:
-
-| Model | Parameters | Accuracy | Perplexity | Notes |
-|-------|-----------|----------|------------|-------|
-| MU Transformer | 6.2M | **99.48%** | **1.02** | Formula-based 4×4 semantic slots |
-| Baseline Transformer | 6.28M | 58.34% | 4.14 | Dense embeddings (d_model=268) |
-| Difference | 0.93% | **+41.14%** | **-3.12** | Same params, better architecture |
-
-**The 41% accuracy improvement with identical parameter counts proves that MU's structured semantic approach fundamentally outperforms dense matrices.**
-
-## Quick Start (Colab/Kaggle)
-
-### Single File Training
-
-Just run the standalone `train.py` file:
+**Current Configuration** (12 layers, 10 epochs):
 
 ```python
-# On Colab/Kaggle, just run:
-!python train.py
+# Architecture
+matrix_size = 8                  # 8×8 matrix
+num_semantic_blocks = 16         # 16 blocks (2×2 each)
+n_layers = 12                    # Transformer layers
+n_heads = 8                      # Cross-block attention heads
+dropout = 0.1
 
-# Or if you want to install dependencies first:
-!pip install torch transformers datasets tqdm matplotlib seaborn scikit-learn -q
-!python train.py
+# Vocabulary
+vocab_size = 50000               # BPE tokenization (GPT-2 style)
+max_seq_len = 128                # Sequence length
+
+# Training
+batch_size = 6                   # Adjusted for 12-layer model
+num_epochs = 10                  # Increased for convergence
+gradient_accumulation_steps = 4  # Effective batch_size = 24
+use_mixed_precision = True       # FP16 training
 ```
 
-This will:
-1. ✓ Load WikiText-2 dataset (or use dummy data if download fails)
-2. ✓ Train both MU Transformer and Baseline Transformer
-3. ✓ Compare their performance (loss, perplexity)
-4. ✓ Generate comparison plots
-5. ✓ Show which model performs better
+**Model Specs**:
+- **Total Layers**: 12 deep transformer layers
+- **Attention Operations per Layer**: 17 (16 intra-block + 1 cross-block)
+- **Parameters**: ~40-50M (estimated for 12-layer model)
+- **Memory**: ~6-8 GB GPU memory with mixed precision
+- **Training Time**: ~8-12 hours for 10 epochs (estimated)
 
-**Training takes ~5-10 minutes on GPU for 3 epochs**
+## Quick Start
 
-### Advanced Usage (Full Pipeline)
-
-For full experimentation with all features:
+### Installation
 
 ```bash
 # Clone repository
 git clone https://github.com/PlanetDestroyyer/MU.git
 cd MU
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (PyTorch 2.x required)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install transformers datasets tokenizers tqdm
+```
 
-# Train MU Transformer
-python scripts/train.py --config configs/mu_small.yaml --model mu
+### Training
 
-# Train Baseline
-python scripts/train.py --config configs/baseline_small.yaml --model baseline
+```bash
+# Run training (uses config from src/config.py)
+python run_colab.py
+```
 
-# Evaluate
-python scripts/evaluate.py --checkpoint results/checkpoints/mu/best_model.pt --task all
+This will:
+1. ✓ Download WikiText-2 dataset
+2. ✓ Build BPE tokenizer (50K vocabulary)
+3. ✓ Train MU-SOTA Transformer (12 layers, 10 epochs)
+4. ✓ Evaluate after each epoch
+5. ✓ Generate sample text to verify quality
+6. ✓ Save best model to `mu_sota_best.pt`
+
+**Expected Time**: ~8-12 hours on GPU for 10 epochs
+
+### Text Generation
+
+After training, generate text:
+
+```python
+import torch
+from src.models import MUSOTATransformer
+from src.training import generate_text
+from tokenizers import Tokenizer
+
+# Load model
+checkpoint = torch.load('mu_sota_best.pt')
+model = MUSOTATransformer(checkpoint['config'])
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+
+# Load tokenizer
+tokenizer = Tokenizer.from_file('mu_sota_tokenizer.json')
+
+# Generate
+prompt = "The future of AI"
+generated = generate_text(model, tokenizer, prompt, max_length=100, device='cuda')
+print(generated)
 ```
 
 ## Project Structure
 
 ```
-mu-transformer/
-├── train.py              # 🔥 STANDALONE TRAINING SCRIPT (for Colab/Kaggle)
+MU/
+├── run_colab.py              # Main training entry point
 ├── src/
-│   ├── models/           # Model implementations (for advanced usage)
-│   ├── data/             # Data loading
-│   ├── training/         # Training infrastructure
-│   ├── evaluation/       # Evaluation metrics
-│   └── utils/            # Utilities
-├── tests/                # Comprehensive test suite
-├── scripts/              # Advanced training scripts
-├── configs/              # Model configurations (YAML)
-└── results/              # Outputs (checkpoints, logs, plots)
+│   ├── config.py             # MUSOTAConfig - all hyperparameters
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── semantic_blocks.py    # 16 semantic block definitions
+│   │   ├── sensitivity.py        # Dynamic sensitivity computation
+│   │   ├── attention.py          # Block-wise semantic attention
+│   │   └── transformer.py        # MU-SOTA Transformer model
+│   ├── data/
+│   │   ├── __init__.py
+│   │   └── dataset.py            # WikiText BPE dataset
+│   └── training/
+│       ├── __init__.py
+│       ├── trainer.py            # Training loop with gradient accumulation
+│       └── generation.py         # Text generation with sampling
+├── ARCHITECTURE.md           # Detailed architecture docs
+├── MEMORY_FIX.md            # Memory optimization guide
+├── SPEEDUP_GUIDE.md         # Speed optimization guide
+└── README.md                # This file
 ```
 
-**For quick start**: Just use `train.py` - it's completely standalone!
+## Why MU-SOTA is Different
 
-## Configuration
+### vs Traditional Dense Embeddings
 
-Model and training parameters are specified in YAML config files:
+**Dense Matrix/Embeddings** (Standard Transformers):
+- Each token → dense vector `[d_model]`
+- No explicit semantic structure
+- All dimensions treated equally
+- Example: `[0.23, -0.45, 0.89, ..., 0.12]` (no inherent meaning)
 
-**MU Transformer** (`configs/mu_small.yaml`):
-```yaml
-model:
-  r: 4              # MU matrix rows
-  c: 4              # MU matrix columns
-  d_model: 128      # Hidden dimension
-  n_layers: 6       # Number of layers
-  n_heads: 4        # Attention heads
+**MU-SOTA Matrix** (This Architecture):
+- Each token → 8×8 structured matrix with **16 semantic blocks**
+- Each block has **explicit meaning** (Identity, Structure, Context, etc.)
+- Different blocks have **different sensitivities** (learned dynamically)
+- Example: Position (0-2, 0-2) is always Identity (low sensitivity)
 
-training:
-  batch_size: 32
-  learning_rate: 3e-4
-  lambda_inv: 1.0   # Invariance loss weight
-```
+### Key Innovations
 
-## Evaluation Metrics
+1. **Semantic Slot Assignment**: Each 2×2 block has predetermined semantic role
+   - Identity (I): Core token meaning - stable
+   - Structure (S): Grammar - nearly invariant
+   - Context (C1, C2): Surrounding meaning - highly adaptive
+   - Relations (R1, R2): Dependencies - relational
+   - And 10 more specialized blocks
 
-The framework evaluates models on multiple dimensions:
-
-1. **Language Modeling**: Perplexity on WikiText-2
-2. **Word Sense Disambiguation**: Accuracy on WiC dataset
-3. **Embedding Stability**: Robustness under augmentation
-4. **Slot Specialization**: Variance analysis of MU slots (MU only)
-
-## Testing
-
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run specific test modules
-pytest tests/test_mu_layer.py -v
-pytest tests/test_training.py -v
-
-# Quick sanity checks
-python -m pytest tests/test_shapes.py
-```
-
-## Development
-
-### Code Style
-
-```bash
-# Format code
-black src/ tests/
-
-# Sort imports
-isort src/ tests/
-
-# Lint
-flake8 src/ tests/
-```
-
-### Adding New Features
-
-1. Implement in appropriate module under `src/`
-2. Add unit tests in `tests/`
-3. Update configuration if needed
-4. Document in docstrings
-
-## Results
-
-### Latest Experimental Results (WikiText-2, Character-Level)
-
-**Parameter-Matched Comparison** (3 epochs, ~6.2M parameters each):
-
-| Model | Parameters | Accuracy | Perplexity | Training Loss | Val Loss |
-|-------|-----------|----------|------------|---------------|----------|
-| **MU Transformer** | 6,226,336 | **99.48%** | **1.02** | 0.0052 | 0.0052 |
-| **Baseline Transformer** | 6,280,704 | 58.34% | 4.14 | 0.5432 | 0.5439 |
-| **Improvement** | +0.93% | **+41.14%** | **-3.12** | **-99.0%** | **-99.0%** |
-
-### Key Findings
-
-1. **Architectural Superiority**: With nearly identical parameter counts (0.93% difference), MU achieves:
-   - **41.14% higher accuracy** - proving semantic structure matters
-   - **3.12 perplexity reduction** - better language modeling
-   - **99% lower loss** - more effective optimization
-
-2. **Formula-Based Dynamics Work**: All sensitivity values are computed from semantic principles:
-   - Identity slots (I): 0.01-0.15 sensitivity (stable)
-   - Structural slots (S1-S2): 0.005-0.03 sensitivity (invariant)
-   - Context slots (C1-C4): 0.60-0.99 sensitivity (highly adaptive)
-   - Relational slots (R1a-R2b): 0.70-0.95 sensitivity (dependency-aware)
-   - Transformation slots (T1-T2): 0.40-0.85 sensitivity (compositional)
-
-3. **No Hard-Coded Values**: Every sensitivity is computed from:
-   - Learned token properties (frequency, pos_entropy, diversity, compositionality)
+2. **Dynamic Sensitivity**: Each block's update rate is computed from:
+   - Learned token properties (via nn.Embedding)
    - Attention patterns (entropy, distribution)
-   - Semantic formulas (different for each slot type)
+   - Block-specific formulas
 
-4. **Generalization**: MU achieves near-perfect accuracy (99.48%) on validation set, showing excellent generalization despite structured constraints
+3. **Block-Wise Processing**: 16 separate attention modules
+   - Respects semantic structure
+   - More interpretable
+   - Can visualize individual block contributions
 
-### Model Details
+4. **Cross-Block Refinement**: Global attention allows blocks to interact
+   - Prevents information silos
+   - Maintains holistic understanding
+   - Best of both worlds: structure + flexibility
 
-**MU Transformer Configuration**:
-- 4×4 semantic slot matrix (16 values per token)
-- 8 transformer layers
-- 4 attention heads
-- d_model = 256 (after projection from 16-dimensional MU space)
-- Vocab size = 10,000 (character-level)
-- Total parameters: 6.2M
+## Training Results Analysis
 
-**Baseline Transformer Configuration**:
-- Dense embeddings (d_model = 268, matched via binary search)
-- 8 transformer layers
-- 4 attention heads
-- Vocab size = 10,000 (character-level)
-- Total parameters: 6.28M (matched within 0.93%)
+### 3-Epoch Baseline (6 layers)
 
-### Why MU Wins
-
-The dramatic performance gap (99.48% vs 58.34%) with matched parameters proves that:
-
-1. **Semantic structure is powerful**: Explicit slot assignments (I, S, C, R, T, K, G) guide learning
-2. **Differential sensitivity matters**: Different update rates for different semantic roles
-3. **Formula-based dynamics are effective**: No need for hard-coded values when you have semantic principles
-4. **Interpretability helps performance**: Structured representations constrain the model in beneficial ways
-
-## Interactive Testing
-
-After training, you can test the MU model like a normal language model!
-
-### Quick Start
-
-```bash
-# Train the model first
-python run_colab.py
-
-# Test interactively
-python test_mu_model.py
+**Training Metrics**:
+```
+Epoch 1/3: Loss=8.24, Acc=6.51%,  PPL=1151  (Baseline)
+Epoch 2/3: Loss=6.52, Acc=14.45%, PPL=641   (+122% accuracy)
+Epoch 3/3: Loss=6.02, Acc=17.53%, PPL=500   (+21% accuracy)
 ```
 
-### Features
+**What This Means**:
+- ✅ **Architecture validates**: Loss decreasing steadily (8.24 → 6.02)
+- ✅ **Learning effectively**: Accuracy nearly tripled (6.51% → 17.53%)
+- ✅ **Perplexity improving**: 1151 → 500 (better language modeling)
+- ✅ **Text generation working**: Coherent phrases appearing
 
-1. **Interactive Mode**: Type prompts and generate text in real-time
-2. **Adjustable Parameters**: Control temperature, length, and top-k sampling
-3. **Batch Generation**: Test multiple prompts at once
-4. **Character-Level Generation**: The model generates text character-by-character
+**Generation Quality**:
+- Epoch 1: Gibberish tokens
+- Epoch 2: Word-like fragments
+- Epoch 3: Semi-coherent phrases
 
-### Example Usage
+### Comparison to SOTA (see next section)
+
+The 3-epoch run is a **proof-of-concept** showing the architecture works. With 12 layers and 10 epochs, we expect significantly better results.
+
+## Optimization Features
+
+### Memory Optimizations
+- **Mixed Precision (FP16)**: 2x memory reduction
+- **Gradient Accumulation**: Simulate larger batches without memory overhead
+- **Memory-Efficient Processing**: `del` statements to free intermediate tensors
+- **Reduced Sequence Length**: 128 tokens (vs typical 512-2048)
+
+### Speed Optimizations
+- **Reduced Layers**: 12 layers (vs typical 24-48 for SOTA)
+- **Gradient Accumulation**: 4 steps for effective batch_size=24
+- **Mixed Precision**: ~2x speedup on modern GPUs
+- **Optimized Attention**: Block-wise processing reduces quadratic complexity
+
+### Current Performance
+- **Memory**: ~6-8 GB GPU (fits on consumer hardware)
+- **Speed**: ~14 min/epoch (6 layers) → ~25-30 min/epoch (12 layers, estimated)
+- **Total Training**: ~4-5 hours for 10 epochs (12 layers, estimated)
+
+## Troubleshooting
+
+### CUDA Out of Memory
 
 ```bash
-$ python test_mu_model.py
+# Reduce batch size
+batch_size = 4  # in src/config.py
 
-Choose mode:
-  1. Interactive mode (type prompts)
-  2. Demo with sample prompts
-Enter choice (1 or 2): 1
-
-🎮 INTERACTIVE MU TRANSFORMER
-
-Commands:
-  • Type text to generate continuation
-  • 'temp X' to set temperature (e.g., 'temp 0.5')
-  • 'length X' to set generation length (e.g., 'length 100')
-  • 'quit' or 'exit' to quit
-
-📝 Enter prompt: The quick brown
-🤖 Generating (temp=0.8, len=200)...
-
-GENERATED TEXT:
-The quick brown fox jumps over the lazy dog and runs through...
+# Or increase gradient accumulation
+gradient_accumulation_steps = 8  # effective batch stays same
 ```
 
-### Generation Tips
+### Training Too Slow
 
-- **Temperature**: 0.3-0.6 for focused text, 0.7-0.9 for balanced, 1.0+ for creative
-- **Max Length**: Start with 100-200 characters
-- **Prompts**: Short prompts (5-15 characters) work best for character-level models
-- **Quality**: Lower temperature (0.5) produces more coherent text
+```bash
+# Already optimized! But you can:
+# - Use smaller sequence length (64 instead of 128)
+# - Reduce layers (8 instead of 12)
+# - Check GPU utilization (should be >80%)
+```
 
-For more details, see [TEST_MODEL.md](TEST_MODEL.md).
+### Poor Generation Quality
+
+- **Early epochs**: Normal - wait for more training
+- **After many epochs**: Try adjusting:
+  - `temperature = 0.7` (lower for more focused text)
+  - `top_k = 40` (lower for more deterministic sampling)
+  - `learning_rate = 1e-4` (lower if loss oscillates)
+
+## Future Work
+
+- [ ] Scale to 24 layers for full SOTA depth
+- [ ] Increase sequence length to 256-512
+- [ ] Add benchmark evaluations (GLUE, SuperGLUE)
+- [ ] Implement attention visualization for semantic blocks
+- [ ] Multi-GPU training support
+- [ ] Pre-training on larger corpora (BookCorpus, C4)
 
 ## Citation
 
 ```bibtex
-@article{mu_transformer_2024,
-  title={Meaning Unit Transformers: Structured Semantic Representations for Neural Language Models},
-  author={Your Name},
+@article{mu_sota_transformer_2024,
+  title={MU-SOTA: Structured Semantic Transformers with Block-Wise Attention},
+  author={MU Research Team},
   year={2024}
 }
 ```
@@ -388,40 +342,6 @@ For more details, see [TEST_MODEL.md](TEST_MODEL.md).
 
 MIT License - see LICENSE file for details
 
-## Acknowledgments
-
-- Built with PyTorch and HuggingFace Transformers
-- Datasets from HuggingFace Datasets
-- Inspired by research in structured representations and semantic factorization
-
-## Troubleshooting
-
-### Common Issues
-
-**Out of Memory**:
-```bash
-# Reduce batch size in config
-batch_size: 16  # instead of 32
-```
-
-**Slow Training**:
-```bash
-# Enable mixed precision
-mixed_precision: true
-
-# Reduce workers if CPU-bound
-num_workers: 2
-```
-
-**NaN Losses**:
-```bash
-# Check gradient clipping
-gradient_clip: 1.0
-
-# Reduce learning rate
-learning_rate: 1e-4
-```
-
 ## Contributing
 
 Contributions welcome! Please:
@@ -429,9 +349,14 @@ Contributions welcome! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Add tests for new features
-4. Ensure all tests pass
+4. Ensure code follows modular structure
 5. Submit a pull request
 
 ## Contact
 
-For questions or issues, please open a GitHub issue or contact [your-email@example.com]
+For questions or issues, please open a GitHub issue.
+
+---
+
+**Status**: 🚀 Ready for 12-layer, 10-epoch training run
+**Next Milestone**: Benchmark against GPT-2 baseline on WikiText-2
