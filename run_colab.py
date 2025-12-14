@@ -7,9 +7,12 @@ Usage:
     python run_colab.py
 """
 
+import os
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Suppress tokenizers warning
+
 import torch
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 import logging
 
 # Import from modular structure
@@ -87,12 +90,20 @@ def main():
         logger.info(f"  Train: Loss={train_metrics['loss']:.4f}, Acc={train_metrics['accuracy']*100:.2f}%")
         logger.info(f"  Val: Loss={val_metrics['loss']:.4f}, Acc={val_metrics['accuracy']*100:.2f}%, PPL={val_metrics['perplexity']:.2f}")
 
-        # Generate sample text
-        if epoch % 2 == 0:  # Every 2 epochs
-            logger.info("\nSample Generation:")
-            for prompt in ["The quick brown", "Once upon a time"]:
+        # Generate sample text AFTER EACH EPOCH to verify it's working
+        logger.info(f"\n{'='*80}")
+        logger.info(f"TEXT GENERATION TEST - EPOCH {epoch}")
+        logger.info(f"{'='*80}")
+        test_prompts = ["The quick brown", "Once upon a time", "In the beginning"]
+        for prompt in test_prompts:
+            try:
                 generated = generate_text(model, train_dataset, prompt, max_length=30, device=config.device)
-                logger.info(f"  '{prompt}' → '{generated}'")
+                logger.info(f"  Prompt: '{prompt}'")
+                logger.info(f"  Generated: '{generated}'")
+                logger.info("-" * 80)
+            except Exception as e:
+                logger.error(f"  Error generating from '{prompt}': {e}")
+        logger.info(f"{'='*80}\n")
 
         # Save best model
         if val_metrics['perplexity'] < best_perplexity:

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 import math
 from typing import Dict
@@ -34,7 +34,7 @@ def train_epoch(model: nn.Module, dataloader: DataLoader, optimizer: torch.optim
         optimizer.zero_grad()
 
         # Mixed precision forward pass
-        with autocast(device_type=device_type, enabled=config.use_mixed_precision):
+        with autocast(device_type, enabled=config.use_mixed_precision):
             logits = model(input_ids)
             loss = F.cross_entropy(
                 logits.reshape(-1, logits.size(-1)),
@@ -80,7 +80,7 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: str) -> Dict:
             input_ids = batch['input_ids'].to(device)
             labels = batch['labels'].to(device)
 
-            with autocast(device_type=device_type, enabled=config.use_mixed_precision):
+            with autocast(device_type, enabled=config.use_mixed_precision):
                 logits = model(input_ids)
                 loss = F.cross_entropy(
                     logits.reshape(-1, logits.size(-1)),

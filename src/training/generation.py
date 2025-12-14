@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from ..config import MUSOTAConfig
 from ..data import WikiTextBPEDataset
@@ -31,7 +31,7 @@ def generate_text(model: nn.Module, dataset: WikiTextBPEDataset, prompt: str,
             input_tensor = torch.tensor([input_ids[-config.max_seq_len:]], dtype=torch.long).to(device)
 
             # Forward pass
-            with autocast(device_type=device_type, enabled=config.use_mixed_precision):
+            with autocast(device_type, enabled=config.use_mixed_precision):
                 logits = model(input_tensor)
 
             next_token_logits = logits[0, -1, :] / temperature
