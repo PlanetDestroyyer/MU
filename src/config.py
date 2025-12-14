@@ -22,7 +22,7 @@ class MUSOTAConfig:
 
     # Training
     batch_size = 16 # Adjusted for 12-layer model memory requirements
-    num_epochs = 10  # Increased for better convergence
+    num_epochs = 50  # Increased for better convergence
     learning_rate = 3e-4  # Slightly higher for faster convergence
     weight_decay = 0.01
     warmup_steps = 500  # Reduced warmup
