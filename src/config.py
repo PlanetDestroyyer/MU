@@ -18,16 +18,16 @@ class MUSOTAConfig:
 
     # Vocabulary
     vocab_size = 50000  # Like GPT-2
-    max_seq_len = 128  # Optimized for memory efficiency
+    max_seq_len = 192  # Increased from 128 for better context (memory-safe)
 
     # Training
-    batch_size = 6  # Adjusted for 12-layer model memory requirements
-    num_epochs = 10  # Increased for better convergence
-    learning_rate = 3e-4  # Slightly higher for faster convergence
+    batch_size = 4  # Reduced to compensate for longer sequences
+    num_epochs = 30  # Increased from 10 to break through plateau
+    learning_rate = 1e-4  # REDUCED from 3e-4 to help with convergence
     weight_decay = 0.01
-    warmup_steps = 500  # Reduced warmup
+    warmup_steps = 2000  # INCREASED from 500 for smoother start
     max_grad_norm = 1.0
-    gradient_accumulation_steps = 4  # Simulate batch_size=32
+    gradient_accumulation_steps = 8  # Effective batch_size = 32 (maintained)
 
     # Mixed precision
     use_mixed_precision = True
