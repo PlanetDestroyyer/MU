@@ -18,6 +18,9 @@ def generate_text(model: nn.Module, dataset: WikiTextBPEDataset, prompt: str,
     """Generate text with temperature/top-k/top-p sampling"""
     model.eval()
 
+    # Determine device type for autocast
+    device_type = 'cuda' if 'cuda' in device else 'cpu'
+
     # Encode prompt
     encoding = dataset.tokenizer.encode(prompt)
     input_ids = encoding.ids
@@ -28,7 +31,7 @@ def generate_text(model: nn.Module, dataset: WikiTextBPEDataset, prompt: str,
             input_tensor = torch.tensor([input_ids[-config.max_seq_len:]], dtype=torch.long).to(device)
 
             # Forward pass
-            with autocast(enabled=config.use_mixed_precision):
+            with autocast(device_type=device_type, enabled=config.use_mixed_precision):
                 logits = model(input_tensor)
 
             next_token_logits = logits[0, -1, :] / temperature

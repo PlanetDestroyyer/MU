@@ -42,7 +42,7 @@ class DynamicBlockSensitivity(nn.Module):
 
         Args:
             token_ids: [B, T]
-            attention_weights: [B, T, num_heads, T] (optional)
+            attention_weights: [B, T, T] - from MultiheadAttention (optional)
 
         Returns:
             sensitivity: [B, T, num_blocks] - fully computed, no hardcoding!
@@ -54,10 +54,11 @@ class DynamicBlockSensitivity(nn.Module):
 
         # Attention-based modulation (COMPUTED from context)
         if attention_weights is not None:
+            # attention_weights: [B, T, T] -> compute entropy per token
             attn_entropy = -torch.sum(
                 attention_weights * torch.log(attention_weights + 1e-9),
                 dim=-1
-            ).mean(dim=-2)  # [B, T]
+            )  # [B, T] - entropy for each token position
         else:
             attn_entropy = torch.zeros(B, T, device=token_ids.device)
 
