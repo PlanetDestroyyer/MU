@@ -72,9 +72,9 @@ class BlockWiseSemanticAttention(nn.Module):
             M_out: [B, T, 8, 8] - processed matrices
         """
         B, T = M.shape[0], M.shape[1]
-        block_outputs = {}
+        block_outputs = []
 
-        # Process each semantic block independently
+        # Process each semantic block independently (memory-efficient)
         for block_name in SemanticBlockLayout.get_all_block_names():
             r1, c1, r2, c2 = SemanticBlockLayout.get_block_indices(block_name)
 
@@ -88,10 +88,14 @@ class BlockWiseSemanticAttention(nn.Module):
                 key_padding_mask=mask if mask is not None else None
             )
 
-            block_outputs[block_name] = block_out
+            block_outputs.append(block_out)
+
+            # Clear intermediate tensors to save memory
+            del block_data, block_flat
 
         # Combine all blocks
-        all_blocks = torch.cat(list(block_outputs.values()), dim=-1)  # [B, T, 64]
+        all_blocks = torch.cat(block_outputs, dim=-1)  # [B, T, 64]
+        del block_outputs  # Free memory
 
         # Cross-block attention (blocks interact)
         cross_out, attn_weights = self.cross_block_attn(
