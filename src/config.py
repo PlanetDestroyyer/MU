@@ -18,10 +18,10 @@ class MUSOTAConfig:
 
     # Vocabulary
     vocab_size = 50000  # Like GPT-2
-    max_seq_len = 512
+    max_seq_len = 256  # Reduced from 512 to save memory
 
     # Training
-    batch_size = 32
+    batch_size = 4  # Reduced from 32 to fit in GPU memory (16 blocks * 24 layers is memory-intensive)
     num_epochs = 5  # Reduced to 5 for faster testing
     learning_rate = 1e-4
     weight_decay = 0.01
