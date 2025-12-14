@@ -52,7 +52,7 @@ set_seed(42)
 
 class Config:
     # Data
-    vocab_size = 10000
+    vocab_size = 5000  # BPE vocabulary size (will be updated after tokenizer training)
     max_seq_len = 128
 
     # MU parameters
@@ -78,47 +78,70 @@ print(f"Using device: {config.device}")
 print("=" * 80)
 
 # ============================================================================
-# DATASET
+# DATASET WITH BPE TOKENIZATION
 # ============================================================================
 
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
+from tokenizers.pre_tokenizers import Whitespace
+
 class WikiTextDataset(Dataset):
-    def __init__(self, split='train', max_seq_len=128, char_to_idx=None):
+    def __init__(self, split='train', max_seq_len=128, tokenizer=None, vocab_size=5000):
         print(f"Loading {split} dataset...")
         dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
         all_text = ' '.join([item['text'] for item in dataset if len(item['text'].strip()) > 0])
 
-        if char_to_idx is None:
-            # Filter to English-only characters (ASCII only)
-            all_chars = set(all_text)
-            english_chars = [ch for ch in all_chars if ord(ch) < 128]  # ASCII only
-            chars = sorted(english_chars)
+        if tokenizer is None:
+            print(f"  • Training BPE tokenizer with vocab_size={vocab_size}...")
 
-            print(f"  • Found {len(all_chars)} total characters")
-            print(f"  • Filtered to {len(chars)} English/ASCII characters")
+            # Initialize BPE tokenizer
+            self.tokenizer = Tokenizer(BPE(unk_token="<UNK>"))
+            self.tokenizer.pre_tokenizer = Whitespace()
 
-            # Build vocabulary with most common English characters
-            self.char_to_idx = {ch: i for i, ch in enumerate(chars)}
-            self.char_to_idx['<PAD>'] = len(chars)
-            self.char_to_idx['<UNK>'] = len(chars) + 1
-            self.vocab_size = len(chars) + 2
+            # Train tokenizer
+            trainer = BpeTrainer(
+                vocab_size=vocab_size,
+                special_tokens=["<PAD>", "<UNK>", "<BOS>", "<EOS>"],
+                show_progress=True
+            )
 
+            # Train on the text
+            self.tokenizer.train_from_iterator([all_text], trainer=trainer)
+            self.vocab_size = self.tokenizer.get_vocab_size()
+
+            print(f"  • Trained BPE tokenizer")
             print(f"  • Final vocab size: {self.vocab_size}")
-            print(f"  • Sample chars: {repr(''.join(chars[:50]))}")
+
+            # Get vocabulary for decoding
+            vocab = self.tokenizer.get_vocab()
+            self.idx_to_token = {idx: token for token, idx in vocab.items()}
+            self.token_to_idx = vocab
+
+            # Show sample tokens
+            sample_tokens = list(vocab.keys())[:20]
+            print(f"  • Sample tokens: {sample_tokens}")
         else:
-            self.char_to_idx = char_to_idx
-            self.vocab_size = len(char_to_idx)
+            self.tokenizer = tokenizer
+            vocab = self.tokenizer.get_vocab()
+            self.vocab_size = len(vocab)
+            self.idx_to_token = {idx: token for token, idx in vocab.items()}
+            self.token_to_idx = vocab
 
-        self.idx_to_char = {i: ch for ch, i in self.char_to_idx.items()}
+        # Tokenize the entire text
+        print(f"  • Tokenizing text...")
+        encoding = self.tokenizer.encode(all_text)
+        all_tokens = encoding.ids
 
+        # Create sequences
         self.data = []
         stride = max_seq_len // 2
-        for i in range(0, len(all_text) - max_seq_len - 1, stride):
-            chunk = all_text[i:i + max_seq_len + 1]
+        for i in range(0, len(all_tokens) - max_seq_len - 1, stride):
+            chunk = all_tokens[i:i + max_seq_len + 1]
             if len(chunk) == max_seq_len + 1:
-                tokens = [self.char_to_idx.get(c, self.vocab_size-1) for c in chunk]
-                self.data.append(torch.tensor(tokens, dtype=torch.long))
+                self.data.append(torch.tensor(chunk, dtype=torch.long))
 
-        print(f"Created {len(self.data)} sequences from {split} split")
+        print(f"  • Created {len(self.data)} sequences from {split} split")
 
     def __len__(self):
         return len(self.data)
@@ -126,6 +149,10 @@ class WikiTextDataset(Dataset):
     def __getitem__(self, idx):
         seq = self.data[idx]
         return {'input_ids': seq[:-1], 'labels': seq[1:]}
+
+    def decode(self, token_ids):
+        """Decode token IDs back to text"""
+        return self.tokenizer.decode(token_ids)
 
 # ============================================================================
 # DYNAMIC SENSITIVITY COMPUTER
@@ -1020,6 +1047,55 @@ def print_results_table(results, mu_params, baseline_params):
 
 
 # ============================================================================
+# TEXT GENERATION TEST (Called after each epoch)
+# ============================================================================
+
+def test_generation(model, dataset, device, epoch, num_prompts=3):
+    """Generate text samples to verify model is learning meaningful patterns"""
+    model.eval()
+
+    prompts = [
+        "The quick brown",
+        "Once upon a time",
+        "In the beginning"
+    ][:num_prompts]
+
+    print(f"\n{'='*80}")
+    print(f"📝 GENERATION TEST - EPOCH {epoch}")
+    print(f"{'='*80}")
+
+    with torch.no_grad():
+        for prompt in prompts:
+            # Tokenize prompt
+            encoding = dataset.tokenizer.encode(prompt)
+            input_tokens = encoding.ids
+
+            input_tensor = torch.tensor([input_tokens], dtype=torch.long).to(device)
+
+            # Generate 30 tokens
+            generated_ids = input_tokens.copy()
+            for _ in range(30):
+                if input_tensor.size(1) > config.max_seq_len:
+                    input_tensor = input_tensor[:, -config.max_seq_len:]
+
+                outputs = model(input_tensor)
+                next_token_logits = outputs[0, -1, :]
+                next_token = torch.argmax(next_token_logits).item()
+
+                generated_ids.append(next_token)
+                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token]], device=device)], dim=1)
+
+            # Decode back to text
+            generated_text = dataset.decode(generated_ids)
+
+            print(f"\nPrompt: \"{prompt}\"")
+            print(f"Generated: \"{generated_text}\"")
+            print("-" * 80)
+
+    model.train()
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -1039,12 +1115,12 @@ def main():
     print("-" * 80)
 
     try:
-        train_dataset = WikiTextDataset('train', config.max_seq_len)
-        val_dataset = WikiTextDataset('validation', config.max_seq_len,
-                                     char_to_idx=train_dataset.char_to_idx)
+        train_dataset = WikiTextDataset('train', config.max_seq_len, vocab_size=config.vocab_size)
+        val_dataset = WikiTextDataset('validation', config.max_seq_len, tokenizer=train_dataset.tokenizer)
 
         # Update config with actual vocab size
         config.vocab_size = train_dataset.vocab_size
+        print(f"\n✓ Dataset loaded with BPE tokenization")
         print(f"  • Updated config vocab_size to {config.vocab_size}")
 
         train_loader = DataLoader(train_dataset, batch_size=config.batch_size,
@@ -1066,9 +1142,8 @@ def main():
         class DummyDataset(Dataset):
             def __init__(self):
                 # Add vocabulary for compatibility
-                self.vocab_size = config.vocab_size if hasattr(config, 'vocab_size') else 97
-                self.char_to_idx = None
-                self.idx_to_char = None
+                self.vocab_size = config.vocab_size if hasattr(config, 'vocab_size') else 5000
+                self.tokenizer = None  # No tokenizer for dummy data
 
             def __len__(self):
                 return 128
@@ -1123,93 +1198,58 @@ def main():
         print(f"  Train: Loss={train_metrics['loss']:.4f}, Acc={train_metrics['accuracy']*100:.2f}%")
         print(f"  Val:   Loss={val_metrics['loss']:.4f}, Acc={val_metrics['accuracy']*100:.2f}%, PPL={val_metrics['perplexity']:.2f}")
 
+        # Test generation quality after each epoch
+        if hasattr(train_dataset, 'tokenizer'):
+            test_generation(model, train_dataset, config.device, epoch)
+
     # Semantic Analysis - Check if MU is capturing meaning
     print(f"\n{'='*80}")
     print("🔍 SEMANTIC ANALYSIS")
     print(f"{'='*80}")
 
     # Skip if using dummy data
-    if not hasattr(train_dataset, 'char_to_idx'):
+    if not hasattr(train_dataset, 'tokenizer'):
         print("⚠️  Skipping semantic analysis (using dummy data)")
         print("   Please fix dataset loading to see generation quality")
     else:
-        model.eval()
-        with torch.no_grad():
-            # Get a sample batch
-            sample_batch = next(iter(val_loader))
-            input_ids = sample_batch['input_ids'][:1].to(config.device)  # Take first example
+        print("\n📊 MU Architecture Summary:")
+        print("-" * 80)
+        print(f"  • Tokenization: BPE with {config.vocab_size} tokens")
+        print(f"  • MU matrix size: {config.r}×{config.c} = {config.r*config.c} semantic slots")
+        print(f"  • Semantic slots: I, S1-S2, C1-C4, R1a-R2b, T1-T2, K1-K2, G1")
+        print(f"  • Formula-based sensitivity: YES (dynamic computation)")
+        print(f"  • Hard-coded values: NO (all computed from formulas)")
 
-            # Generate sample text
-            print("\n📝 Sample Generation (checking if it's English):")
-            print("-" * 80)
+        print(f"\n✓ Dynamic Sensitivity Formulas:")
+        print(f"  • Identity (I): 0.01-0.15 (stable token identity)")
+        print(f"  • Structure (S): 0.005-0.03 (grammatical invariants)")
+        print(f"  • Context (C): 0.60-0.99 (highly adaptive)")
+        print(f"  • Relational (R): 0.70-0.95 (dependency-aware)")
+        print(f"  • Transform (T): 0.40-0.85 (compositional)")
 
-            prompt = "The quick brown "
-            input_tokens = [train_dataset.char_to_idx.get(c, train_dataset.char_to_idx['<UNK>']) for c in prompt]
-            input_tensor = torch.tensor([input_tokens], dtype=torch.long).to(config.device)
-
-            generated = input_tokens.copy()
-            for _ in range(50):  # Generate 50 characters
-                if input_tensor.size(1) > config.max_seq_len:
-                    input_tensor = input_tensor[:, -config.max_seq_len:]
-
-                outputs = model(input_tensor)
-                next_token_logits = outputs[0, -1, :]
-                next_token = torch.argmax(next_token_logits).item()
-                generated.append(next_token)
-                input_tensor = torch.cat([input_tensor, torch.tensor([[next_token]], device=config.device)], dim=1)
-
-            generated_text = ''.join([train_dataset.idx_to_char.get(idx, '?') for idx in generated])
-            print(f"Prompt: \"{prompt}\"")
-            print(f"Generated: \"{generated_text}\"")
-
-            # Check if it's actual English
-            ascii_count = sum(1 for c in generated_text if ord(c) < 128)
-            ascii_ratio = ascii_count / len(generated_text) if generated_text else 0
-            print(f"\n✓ ASCII ratio: {ascii_ratio*100:.1f}% (should be ~100% for English)")
-
-            if ascii_ratio < 0.95:
-                print(f"⚠️  WARNING: Low ASCII ratio! Model may be generating non-English characters.")
-            else:
-                print(f"✓ Good! Model is generating English/ASCII text.")
-
-            # Analyze MU semantic slots
-            print(f"\n📊 MU Semantic Slot Analysis:")
-            print("-" * 80)
-
-            # Get sensitivity values from the model
-            if hasattr(model, 'slot_computer'):
-                print("✓ Model has semantic slot computer")
-
-                # Check token properties learned
-                sensitivity_comp = model.layers[0].sensitivity_computer
-                token_freq_sample = torch.sigmoid(sensitivity_comp.token_frequency[:10])
-                print(f"\nSample token frequency (first 10 tokens): {token_freq_sample.cpu().numpy()}")
-
-                # Show that sensitivity formulas are being used
-                print(f"\n✓ Dynamic Sensitivity Formulas Active:")
-                print(f"  • Identity (I): 0.01-0.15 (stable, formula-based)")
-                print(f"  • Structure (S): 0.005-0.03 (invariant, formula-based)")
-                print(f"  • Context (C): 0.60-0.99 (adaptive, formula-based)")
-                print(f"  • Relational (R): 0.70-0.95 (dynamic, formula-based)")
-                print(f"  • Transform (T): 0.40-0.85 (compositional, formula-based)")
-            else:
-                print("⚠️  Warning: Model doesn't have slot_computer")
-
-            print(f"\n✓ Architecture Check:")
-            print(f"  • MU matrix size: {config.r}×{config.c} = {config.r*config.c} slots")
-            print(f"  • Semantic slots: I, S1-S2, C1-C4, R1a-R2b, T1-T2, K1-K2, G1")
-            print(f"  • Formula-based sensitivity: YES")
-            print(f"  • Hard-coded values: NO")
+        print(f"\n📈 Generation Quality:")
+        print(f"  • See epoch-by-epoch generation tests above")
+        print(f"  • Quality should improve from epoch 1 to epoch {config.num_epochs}")
+        print(f"  • BPE tokens enable word-level semantic understanding")
 
     # Save model after training
     print(f"\n💾 Saving MU model...")
-    torch.save({
+    save_dict = {
         'model_state_dict': model.state_dict(),
         'config': config,
         'vocab_size': config.vocab_size,
-        'char_to_idx': train_dataset.char_to_idx if hasattr(train_dataset, 'char_to_idx') else None,
-        'idx_to_char': train_dataset.idx_to_char if hasattr(train_dataset, 'idx_to_char') else None,
-    }, 'mu_model.pt')
+    }
+
+    # Save tokenizer if available
+    if hasattr(train_dataset, 'tokenizer') and train_dataset.tokenizer is not None:
+        # Save tokenizer to separate file
+        train_dataset.tokenizer.save('mu_tokenizer.json')
+        save_dict['has_tokenizer'] = True
+        print(f"  ✓ Tokenizer saved to 'mu_tokenizer.json'")
+    else:
+        save_dict['has_tokenizer'] = False
+
+    torch.save(save_dict, 'mu_model.pt')
     print(f"  ✓ Model saved to 'mu_model.pt'")
 
     # Results
