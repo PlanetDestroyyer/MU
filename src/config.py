@@ -18,7 +18,7 @@ class MUSOTAConfig:
 
     # Vocabulary
     vocab_size = 50000  # Like GPT-2
-    max_seq_len = 192  # Increased from 128 for better context (memory-safe)
+    max_seq_len = 256  # Increased from 128 for better context (memory-safe)
 
     # Training
     batch_size = 12  # Reduced to compensate for longer sequences
