@@ -12,22 +12,22 @@ class MUSOTAConfig:
     block_size = 2  # 2×2 blocks
 
     # Architecture (SOTA-level)
-    n_layers = 12  # Scaled up from 6 for better performance
-    n_heads = 8
+    n_layers = 24  # Scaled up from 6 for better performance
+    n_heads = 16
     dropout = 0.1
 
     # Vocabulary
     vocab_size = 50000  # Like GPT-2
-    max_seq_len = 128  # Optimized for memory efficiency
+    max_seq_len = 512  # Optimized for memory efficiency
 
     # Training
-    batch_size = 32  # Adjusted for 12-layer model memory requirements
+    batch_size = 32 # Adjusted for 12-layer model memory requirements
     num_epochs = 10  # Increased for better convergence
     learning_rate = 3e-4  # Slightly higher for faster convergence
     weight_decay = 0.01
     warmup_steps = 500  # Reduced warmup
     max_grad_norm = 1.0
-    gradient_accumulation_steps = 1  # Simulate batch_size=32
+    gradient_accumulation_steps = 2  # Simulate batch_size=32
 
     # Mixed precision
     use_mixed_precision = True
