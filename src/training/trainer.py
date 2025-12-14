@@ -24,6 +24,9 @@ def train_epoch(model: nn.Module, dataloader: DataLoader, optimizer: torch.optim
 
     pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{total_epochs} [Train]")
 
+    # Determine device type for autocast
+    device_type = 'cuda' if 'cuda' in device else 'cpu'
+
     for batch in pbar:
         input_ids = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
@@ -31,7 +34,7 @@ def train_epoch(model: nn.Module, dataloader: DataLoader, optimizer: torch.optim
         optimizer.zero_grad()
 
         # Mixed precision forward pass
-        with autocast(enabled=config.use_mixed_precision):
+        with autocast(device_type=device_type, enabled=config.use_mixed_precision):
             logits = model(input_ids)
             loss = F.cross_entropy(
                 logits.reshape(-1, logits.size(-1)),
@@ -69,12 +72,15 @@ def evaluate(model: nn.Module, dataloader: DataLoader, device: str) -> Dict:
     total_correct = 0
     total_tokens = 0
 
+    # Determine device type for autocast
+    device_type = 'cuda' if 'cuda' in device else 'cpu'
+
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Evaluating"):
             input_ids = batch['input_ids'].to(device)
             labels = batch['labels'].to(device)
 
-            with autocast(enabled=config.use_mixed_precision):
+            with autocast(device_type=device_type, enabled=config.use_mixed_precision):
                 logits = model(input_ids)
                 loss = F.cross_entropy(
                     logits.reshape(-1, logits.size(-1)),

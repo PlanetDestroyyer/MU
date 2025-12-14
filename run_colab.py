@@ -72,7 +72,9 @@ def main():
         optimizer, max_lr=config.learning_rate, total_steps=total_steps,
         pct_start=config.warmup_steps/total_steps
     )
-    scaler = GradScaler(enabled=config.use_mixed_precision)
+    # Create GradScaler for mixed precision
+    device_type = 'cuda' if 'cuda' in config.device else 'cpu'
+    scaler = GradScaler(device_type, enabled=config.use_mixed_precision)
 
     # Training loop
     best_perplexity = float('inf')
