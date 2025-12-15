@@ -22,7 +22,7 @@ class MUSOTAConfig:
 
     # Training
     batch_size = 12  # Reduced to compensate for longer sequences
-    num_epochs = 30  # Increased from 10 to break through plateau
+    num_epochs = 100  # Increased from 10 to break through plateau
     learning_rate = 1e-4  # REDUCED from 3e-4 to help with convergence
     weight_decay = 0.01
     warmup_steps = 2000  # INCREASED from 500 for smoother start
